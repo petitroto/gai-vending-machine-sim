@@ -51,3 +51,7 @@
 6. Webブラウザで http://localhost:3000 を開く
 
 音声が再生されるので、音が聞こえるようにして試してください。
+
+## 著者への連絡先
+
+https://twitter.com/petitroto
