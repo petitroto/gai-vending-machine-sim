@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>自動販売機シミュレーター</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .panel {
+            background-color: #e7f2f8;
+            border: 1px solid #b1d4e0;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .flex-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+            align-items: center;
+        }
+
+        .button {
+            padding: 8px 16px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .green {
+            background-color: #39d39f;
+            color: white;
+        }
+
+        .red {
+            background-color: #ff6b6b;
+            color: white;
+        }
+
+        .white {
+            background-color: #eff3f4;
+            color: #bbbbbb;
+        }
+
+        .disabled {
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        .status-panel {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 1.2em;
+            padding: 10px;
+        }
+
+        #output, #change {
+            margin-top: 5px;
+            background-color: #e9e9e9;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #cccccc;
+        }
+
+        #debug-console {
+            margin-top: 30px;
+        }
+
+        .debug-panel {
+            background-color: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            padding: 10px;
+            height: 60px;
+            overflow-y: auto; /* コンテンツがはみ出た場合にスクロールバーを表示 */
+            font-size: 0.9em;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>自動販売機シミュレーター</h1>
+    <div class="flex-container">
+        <div id="coffee" class="button white">コーヒー (100円) [1]</div>
+        <div id="cola" class="button white">コーラ (100円) [2]</div>
+        <div id="tea" class="button white">紅茶 (100円) [3]</div>
+        <div id="juice" class="button white">ジュース (100円) [4]</div>
+        <div id="water" class="button white">水 (100円) [5]</div>
+    </div>
+    <div class="status-panel">残高: <span id="balance">0</span>円</div>
+    <div class="flex-container">
+        <div id="insert-coin" class="button green">100円投入 [6]</div>
+        <div id="return-change" class="button red disabled">お釣り返却 [7]</div>
+    </div>
+    <div>商品の取り出し口:
+        <div id="output" class="panel"></div>
+    </div>
+    <div>お釣りの返却口:
+        <div id="change" class="panel"></div>
+    </div>
+
+    <div id="debug-console">
+        <h2>デバッグコンソール</h2>
+        <div>
+            <div class="debug-panel" id="event-buffer">操作イベントバッファ表示パネル</div>
+            <div class="debug-panel" id="communication-status">通信状態表示パネル</div>
+            <div class="debug-panel" id="conversation-log">会話ログ表示パネル</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const products = {
+        coffee: {stock: 3, elementId: 'coffee'},
+        cola: {stock: 3, elementId: 'cola'},
+        tea: {stock: 3, elementId: 'tea'},
+        juice: {stock: 3, elementId: 'juice'},
+        water: {stock: 3, elementId: 'water'}
+    };
+    let balance = 0;
+    let eventBuffer = [];
+    let lastActionTime = new Date();
+    let conversationHistory = [];
+
+    // UIを更新する関数
+    const updateUI = () => {
+        // 残高表示の更新
+        document.getElementById('balance').textContent = balance;
+
+        // 商品ボタンの色の更新
+        updateProductButtons();
+
+        // お釣り返却ボタンの有効/無効の切り替え
+        const returnChangeButton = document.getElementById('return-change');
+        if (balance > 0) {
+            returnChangeButton.classList.remove('disabled', 'white');
+            returnChangeButton.classList.add('red');
+        } else {
+            returnChangeButton.classList.remove('red');
+            returnChangeButton.classList.add('disabled', 'white');
+        }
+
+        // デバッグパネルの更新
+        document.getElementById('event-buffer').textContent = eventBuffer.join(', ');
+        document.getElementById('conversation-log').textContent = JSON.stringify(conversationHistory, null, 2);
+    };
+
+    const updateProductButtons = () => {
+        Object.keys(products).forEach(productKey => {
+            const product = products[productKey];
+            const button = document.getElementById(product.elementId);
+            if (balance >= 100 && product.stock > 0) {
+                button.classList.add('green');
+                button.classList.remove('red', 'white', 'disabled');
+            } else if (balance >= 100 && product.stock === 0) {
+                button.classList.add('red');
+                button.classList.remove('green', 'white', 'disabled');
+            } else {
+                button.classList.add('white', 'disabled');
+                button.classList.remove('green', 'red');
+            }
+        });
+    };
+
+    const addToEventBuffer = (event) => {
+        eventBuffer.push(event);
+        lastActionTime = new Date();
+        updateUI();
+    };
+
+    const clearOutputAndChange = () => {
+        document.getElementById('output').textContent = '';
+        document.getElementById('change').textContent = '';
+    };
+
+    const insertCoin = () => {
+        balance += 100;
+        clearOutputAndChange();
+        updateUI();
+    };
+
+    const buyProduct = (productKey) => {
+        if (balance >= 100 && products[productKey].stock > 0) {
+            balance -= 100;
+            products[productKey].stock -= 1;
+            // 商品の取り出し口に商品名を表示する
+            document.getElementById('output').textContent = `${productKey}が出てきました`;
+            // 次の動作のためにお釣りの表示をクリア
+            document.getElementById('change').textContent = '';
+            updateUI();
+        }
+    };
+
+    const returnChange = () => {
+        if (balance > 0) {
+            // お釣りの返却口にお釣りの額を表示する
+            document.getElementById('change').textContent = `お釣りで${balance}円が返ってきました`;
+            balance = 0;
+            // 次の動作のために商品の取り出し口の表示をクリア
+            document.getElementById('output').textContent = '';
+            updateUI();
+        }
+    };
+
+    const speak = (message) => {
+        const synth = window.speechSynthesis;
+        const utterance = new SpeechSynthesisUtterance(message);
+        synth.speak(utterance);
+    };
+
+    // Event listeners for buttons
+    document.getElementById('insert-coin').addEventListener('click', () => {
+        addToEventBuffer('Insert100YenCoin');
+    });
+
+    document.getElementById('return-change').addEventListener('click', () => {
+        addToEventBuffer('PushReturnChange');
+    });
+
+    Object.keys(products).forEach(key => {
+        const product = products[key];
+        document.getElementById(product.elementId).addEventListener('click', () => {
+            addToEventBuffer('PushBuy' + key.charAt(0).toUpperCase() + key.slice(1));
+        });
+    });
+
+    // Keyboard event handling
+    document.addEventListener('keyup', (event) => {
+        switch (event.key) {
+            case '1':
+                addToEventBuffer('PushBuyCoffee');
+                break;
+            case '2':
+                addToEventBuffer('PushBuyCola');
+                break;
+            case '3':
+                addToEventBuffer('PushBuyTea');
+                break;
+            case '4':
+                addToEventBuffer('PushBuyJuice');
+                break;
+            case '5':
+                addToEventBuffer('PushBuyWater');
+                break;
+            case '6':
+                addToEventBuffer('Insert100YenCoin');
+                break;
+            case '7':
+                addToEventBuffer('PushReturnChange');
+                break;
+        }
+    });
+
+    // Check for inactivity and process event buffer
+    setInterval(() => {
+        const currentTime = new Date();
+        if ((currentTime - lastActionTime) >= 1000 && eventBuffer.length > 0) {
+            processEventBuffer();
+        }
+    }, 1000);
+
+    const processEventBuffer = () => {
+        // Create user message object
+        const userMessage = {
+            role: 'user',
+            content: JSON.stringify({
+                events: eventBuffer,
+                balance: balance,
+                stock: {
+                    coffee: products.coffee.stock,
+                    cola: products.cola.stock,
+                    tea: products.tea.stock,
+                    juice: products.juice.stock,
+                    water: products.water.stock
+                }
+            })
+        };
+        conversationHistory.push(userMessage);
+        eventBuffer = [];
+        updateUI();
+
+        // 通信状態表示パネルに「通信中」と表示
+        document.getElementById('communication-status').textContent = '通信中...';
+
+        // Send conversation history to server
+        fetch('/assistant', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({conversationHistory})
+        })
+            .then(response => response.json())
+            .then(data => {
+                // 通信が完了したので、通信状態表示パネルのテキストをクリア
+                document.getElementById('communication-status').textContent = '';
+
+                let assistantMessageContents = [];
+
+                if (data.tool_calls) {
+                    data.tool_calls.forEach(call => {
+                        if (call.function.name === 'insertCoin') {
+                            insertCoin();
+                        } else if (call.function.name === 'buyProduct') {
+                            // Parse the arguments to get the product name
+                            const args = JSON.parse(call.function.arguments);
+                            buyProduct(args.product);
+                        } else if (call.function.name === 'returnChange') {
+                            returnChange();
+                        } else if (call.function.name === 'speak') {
+                            // Parse the arguments to get the message
+                            const args = JSON.parse(call.function.arguments);
+                            speak(args.message);
+                            assistantMessageContents.push(args.message);
+                        }
+                    });
+                }
+
+                if (data.content) {
+                    assistantMessageContents.push(data.content);
+
+                    const message = (data.content.match(/<message>[\s\S]*?<\/message>/g) || [])
+                        .map(s => s.replace(/<\/?message>/g, '')).join('');
+                    if (message) {
+                        speak(message);
+                    }
+                }
+
+                if (assistantMessageContents) {
+                    // Add the assistant's response to the conversation history
+                    const assistantMessage = {
+                        role: 'assistant',
+                        content: assistantMessageContents.join("\n")
+                    };
+                    conversationHistory.push(assistantMessage);
+                }
+
+                updateUI();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                // Clear communication status if there is an error
+                document.getElementById('communication-status').textContent = '';
+            });
+    };
+
+    // Initial UI update
+    updateUI();
+</script>
+</body>
+</html>
